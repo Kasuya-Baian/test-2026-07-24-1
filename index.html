@@ -37,10 +37,11 @@
       cursor: pointer;
       margin-top: 15px;
     }
-    #status {
+    #debug-log {
       font-size: 0.8rem;
-      color: #ff2e63;
-      margin-top: 5px;
+      color: #00ffcc;
+      margin-top: 8px;
+      font-family: monospace;
       min-height: 1.2em;
     }
   </style>
@@ -50,13 +51,13 @@
   <h1>傾きブロックくずし</h1>
   <canvas id="gameCanvas" width="320" height="480"></canvas>
   <button id="start-btn">ゲームスタート（センサー起動）</button>
-  <div id="status"></div>
+  <div id="debug-log">ボタンを押してゲームを開始してください</div>
 
   <script>
     const canvas = document.getElementById("gameCanvas");
     const ctx = canvas.getContext("2d");
     const startBtn = document.getElementById("start-btn");
-    const statusDiv = document.getElementById("status");
+    const debugLog = document.getElementById("debug-log");
 
     // ボール設定
     let ballRadius = 6;
@@ -92,78 +93,97 @@
 
     let score = 0;
     let isGameRunning = false;
+    let sensorActive = false;
 
-    // 傾き検知処理
-    function handleMotion(tiltValue) {
-      if (!isGameRunning || tiltValue === null || tiltValue === undefined) return;
+    // パドル位置の更新関数（中心位置指定）
+    function updatePaddlePosition(tiltAmount) {
+      // tiltAmount は -1.0 (左最大) 〜 +1.0 (右最大) の範囲に正規化して扱う
+      const sensitivity = 8; // 動くスピード
+      paddleX += tiltAmount * sensitivity;
 
-      // 傾き感度調整
-      const sensitivity = 0.8;
-      paddleX += tiltValue * sensitivity;
+      // 画面端のガード処理
+      if (paddleX < 0) paddleX = 0;
+      if (paddleX + paddleWidth > canvas.width) paddleX = canvas.width - paddleWidth;
+    }
 
-      // 画面外はみ出し防止
-      if (paddleX < 0) {
-        paddleX = 0;
-      } else if (paddleX + paddleWidth > canvas.width) {
-        paddleX = canvas.width - paddleWidth;
+    // 1. Orientation イベント（角度基準）
+    function handleOrientation(event) {
+      if (event.gamma !== null && event.gamma !== undefined) {
+        sensorActive = true;
+        // gamma: -90 〜 90 度。約 -30度〜30度を操作範囲として正規化 (-1.0 〜 1.0)
+        let normalizedTilt = event.gamma / 30;
+        if (normalizedTilt > 1) normalizedTilt = 1;
+        if (normalizedTilt < -1) normalizedTilt = -1;
+
+        debugLog.innerText = `Orientation (gamma): ${Math.round(event.gamma)}°`;
+        updatePaddlePosition(normalizedTilt);
       }
     }
 
-    // DeviceOrientationのイベントリスナー
-    function onDeviceOrientation(event) {
-      // 縦持ち前提: gamma (左右の傾き -90~90度)
-      if (event.gamma !== null) {
-        handleMotion(event.gamma);
+    // 2. Motion イベント（加速度基準・Orientationが不発の時の保険）
+    function handleMotion(event) {
+      if (sensorActive) return; // Orientation が動いていれば優先する
+
+      let acc = event.accelerationIncludingGravity;
+      if (acc && acc.x !== null && acc.x !== undefined) {
+        // 横持ち・縦持ちやOSの違いを考慮し、加速度 X 軸（約 -9.8 〜 9.8）を正規化
+        // 端末を傾けた時の重力加速度を利用（-5.0 〜 5.0 程度を操作範囲とする）
+        let normalizedTilt = -acc.x / 5; 
+        if (normalizedTilt > 1) normalizedTilt = 1;
+        if (normalizedTilt < -1) normalizedTilt = -1;
+
+        debugLog.innerText = `Motion (acc.x): ${acc.x.toFixed(2)}`;
+        updatePaddlePosition(normalizedTilt);
       }
     }
 
-    // DeviceMotionのイベントリスナー（Orientationが使えない環境のバックアップ）
-    function onDeviceMotion(event) {
-      if (event.accelerationIncludingGravity) {
-        // x軸の加速度を利用（縦持ち時、左右の傾きでxが変化）
-        let ax = event.accelerationIncludingGravity.x;
-        if (ax !== null) {
-          // iOSとAndroidで符号が反転することがあるため調整
-          handleMotion(-ax * 3);
-        }
-      }
-    }
-
-    // センサーの初期化とパーミッション要求
-    async function initSensors() {
-      // 安全な通信（HTTPS / localhost）かどうかの確認チェック
-      if (!window.isSecureContext) {
-        statusDiv.innerText = "エラー: HTTPS（またはlocalhost）環境で開いてください";
-        return false;
-      }
-
-      // iOS 13+ のパーミッション要求
+    // センサーアクセス権限の要求処理
+    async function requestSensorPermissions() {
+      // iOS向け：DeviceOrientationPermission の要求
       if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
         try {
-          const response = await DeviceOrientationEvent.requestPermission();
-          if (response !== 'granted') {
-            statusDiv.innerText = "センサーのアクセスが拒否されました";
+          const orientPermission = await DeviceOrientationEvent.requestPermission();
+          if (orientPermission !== 'granted') {
+            debugLog.innerText = "iOS: 傾きセンサーのアクセスが拒否されました";
             return false;
           }
-        } catch (error) {
-          statusDiv.innerText = "センサー許可エラー: " + error.message;
+        } catch (e) {
+          debugLog.innerText = "Permission Error: " + e.message;
           return false;
         }
       }
 
-      // イベント追加
-      window.addEventListener("deviceorientation", onDeviceOrientation, true);
-      window.addEventListener("devicemotion", onDeviceMotion, true);
+      // iOS向け：DeviceMotionPermission の要求（念のため）
+      if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+        try {
+          await DeviceMotionEvent.requestPermission();
+        } catch (e) {
+          // Motion側の失敗は無視して進める
+        }
+      }
+
+      // リスナの登録
+      window.addEventListener("deviceorientation", handleOrientation, true);
+      window.addEventListener("devicemotion", handleMotion, true);
+
       return true;
     }
 
     startBtn.addEventListener("click", async () => {
-      const success = await initSensors();
-      if (success || !window.isSecureContext) {
-        startBtn.style.display = "none";
+      startBtn.style.display = "none";
+      const permitted = await requestSensorPermissions();
+      
+      if (permitted) {
         resetGame();
         isGameRunning = true;
         draw();
+        
+        // 3秒経ってもセンサーが反応しない場合のデバッグ通知
+        setTimeout(() => {
+          if (!sensorActive && debugLog.innerText.includes("ボタンを押して")) {
+            debugLog.innerText = "センサー値を待機中... (スマホを傾けてみてください)";
+          }
+        }, 1000);
       }
     });
 
