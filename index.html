@@ -3,289 +3,258 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>スマホ傾きブロックくずし</title>
+  <title>ジャイロセンサー検知テスト</title>
   <style>
+    :root {
+      --bg-color: #121212;
+      --card-bg: #1e1e1e;
+      --text-color: #ffffff;
+      --accent-color: #00e676;
+      --danger-color: #ff5252;
+    }
+
     body {
       margin: 0;
-      padding: 0;
-      background-color: #111;
-      color: #fff;
-      font-family: sans-serif;
-      text-align: center;
-      overflow: hidden;
-      touch-action: none;
+      padding: 16px;
+      background-color: var(--bg-color);
+      color: var(--text-color);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      touch-action: manipulation;
     }
+
     h1 {
       font-size: 1.2rem;
-      margin: 10px 0 5px;
+      text-align: center;
+      margin-bottom: 16px;
     }
-    canvas {
-      background: #222;
+
+    .btn {
       display: block;
-      margin: 0 auto;
-      border: 2px solid #555;
-      box-shadow: 0 0 10px rgba(255,255,255,0.2);
-    }
-    #start-btn {
-      padding: 12px 24px;
+      width: 100%;
+      padding: 14px;
       font-size: 1rem;
       font-weight: bold;
-      background-color: #00adb5;
-      color: #fff;
+      color: #000;
+      background-color: var(--accent-color);
       border: none;
-      border-radius: 5px;
+      border-radius: 8px;
       cursor: pointer;
-      margin-top: 15px;
+      margin-bottom: 16px;
+      box-shadow: 0 4px 12px rgba(0,230,118,0.3);
     }
-    #debug-log {
-      font-size: 0.8rem;
-      color: #00ffcc;
-      margin-top: 8px;
+
+    .status-card {
+      background-color: var(--card-bg);
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 12px;
+      border-left: 4px solid var(--accent-color);
+    }
+
+    .status-card.error {
+      border-left-color: var(--danger-color);
+    }
+
+    .card {
+      background-color: var(--card-bg);
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+
+    .card h2 {
+      font-size: 1rem;
+      margin-top: 0;
+      margin-bottom: 12px;
+      color: #aaa;
+      border-bottom: 1px solid #333;
+      padding-bottom: 6px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      text-align: center;
+    }
+
+    .data-box {
+      background-color: #2a2a2a;
+      padding: 10px 4px;
+      border-radius: 6px;
+    }
+
+    .data-label {
+      font-size: 0.75rem;
+      color: #888;
+      margin-bottom: 4px;
+    }
+
+    .data-value {
+      font-size: 1.1rem;
+      font-weight: bold;
       font-family: monospace;
-      min-height: 1.2em;
+    }
+
+    /* 視覚的ビジュアルボール */
+    .stage {
+      width: 100%;
+      height: 120px;
+      background-color: #2a2a2a;
+      border-radius: 8px;
+      position: relative;
+      overflow: hidden;
+      margin-top: 12px;
+    }
+
+    .ball {
+      width: 24px;
+      height: 24px;
+      background-color: var(--accent-color);
+      border-radius: 50%;
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      box-shadow: 0 0 10px var(--accent-color);
     }
   </style>
 </head>
 <body>
 
-  <h1>傾きブロックくずし</h1>
-  <canvas id="gameCanvas" width="320" height="480"></canvas>
-  <button id="start-btn">ゲームスタート（センサー起動）</button>
-  <div id="debug-log">ボタンを押してゲームを開始してください</div>
+  <h1>ジャイro / 加速度 センサーモニター</h1>
+
+  <button id="start-btn" class="btn">センサー起動（アクセス許可）</button>
+
+  <div id="status-card" class="status-card">
+    <div id="status-text">「センサー起動」ボタンを押してください。</div>
+  </div>
+
+  <!-- 1. ジャイロ（傾き/回転角） -->
+  <div class="card">
+    <h2>傾き (DeviceOrientation) [度]</h2>
+    <div class="grid">
+      <div class="data-box">
+        <div class="data-label">α (Z軸/方角)</div>
+        <div id="ori-alpha" class="data-value">0</div>
+      </div>
+      <div class="data-box">
+        <div class="data-label">β (X軸/前後)</div>
+        <div id="ori-beta" class="data-value">0</div>
+      </div>
+      <div class="data-box">
+        <div class="data-label">γ (Y軸/左右)</div>
+        <div id="ori-gamma" class="data-value">0</div>
+      </div>
+    </div>
+
+    <!-- 傾きを連動させるボール -->
+    <div class="stage">
+      <div id="visual-ball" class="ball"></div>
+    </div>
+  </div>
+
+  <!-- 2. 加速度 (重力含む) -->
+  <div class="card">
+    <h2>加速度 (DeviceMotion) [m/s²]</h2>
+    <div class="grid">
+      <div class="data-box">
+        <div class="data-label">X軸 (左右)</div>
+        <div id="acc-x" class="data-value">0</div>
+      </div>
+      <div class="data-box">
+        <div class="data-label">Y軸 (上下)</div>
+        <div id="acc-y" class="data-value">0</div>
+      </div>
+      <div class="data-box">
+        <div class="data-label">Z軸 (前後)</div>
+        <div id="acc-z" class="data-value">0</div>
+      </div>
+    </div>
+  </div>
 
   <script>
-    const canvas = document.getElementById("gameCanvas");
-    const ctx = canvas.getContext("2d");
-    const startBtn = document.getElementById("start-btn");
-    const debugLog = document.getElementById("debug-log");
+    const startBtn = document.getElementById('start-btn');
+    const statusCard = document.getElementById('status-card');
+    const statusText = document.getElementById('status-text');
 
-    // ボール設定
-    let ballRadius = 6;
-    let x = canvas.width / 2;
-    let y = canvas.height - 30;
-    let dx = 2.5;
-    let dy = -2.5;
+    // 表示要素
+    const elAlpha = document.getElementById('ori-alpha');
+    const elBeta = document.getElementById('ori-beta');
+    const elGamma = document.getElementById('ori-gamma');
 
-    // パドル設定
-    const paddleHeight = 10;
-    const paddleWidth = 75;
-    let paddleX = (canvas.width - paddleWidth) / 2;
+    const elAccX = document.getElementById('acc-x');
+    const elAccY = document.getElementById('acc-y');
+    const elAccZ = document.getElementById('acc-z');
 
-    // ブロック設定
-    const brickRowCount = 5;
-    const brickColumnCount = 5;
-    const brickWidth = 50;
-    const brickHeight = 15;
-    const brickPadding = 8;
-    const brickOffsetTop = 40;
-    const brickOffsetLeft = 18;
+    const visualBall = document.getElementById('visual-ball');
 
-    let bricks = [];
-    function initBricks() {
-      for (let c = 0; c < brickColumnCount; c++) {
-        bricks[c] = [];
-        for (let r = 0; r < brickRowCount; r++) {
-          bricks[c][r] = { x: 0, y: 0, status: 1 };
-        }
-      }
-    }
-    initBricks();
-
-    let score = 0;
-    let isGameRunning = false;
-    let sensorActive = false;
-
-    // パドル位置の更新関数（中心位置指定）
-    function updatePaddlePosition(tiltAmount) {
-      // tiltAmount は -1.0 (左最大) 〜 +1.0 (右最大) の範囲に正規化して扱う
-      const sensitivity = 8; // 動くスピード
-      paddleX += tiltAmount * sensitivity;
-
-      // 画面端のガード処理
-      if (paddleX < 0) paddleX = 0;
-      if (paddleX + paddleWidth > canvas.width) paddleX = canvas.width - paddleWidth;
-    }
-
-    // 1. Orientation イベント（角度基準）
+    // 傾き（Orientation）イベントハンドラ
     function handleOrientation(event) {
-      if (event.gamma !== null && event.gamma !== undefined) {
-        sensorActive = true;
-        // gamma: -90 〜 90 度。約 -30度〜30度を操作範囲として正規化 (-1.0 〜 1.0)
-        let normalizedTilt = event.gamma / 30;
-        if (normalizedTilt > 1) normalizedTilt = 1;
-        if (normalizedTilt < -1) normalizedTilt = -1;
+      const alpha = event.alpha ? event.alpha.toFixed(1) : 0;
+      const beta  = event.beta  ? event.beta.toFixed(1)  : 0;
+      const gamma = event.gamma ? event.gamma.toFixed(1) : 0;
 
-        debugLog.innerText = `Orientation (gamma): ${Math.round(event.gamma)}°`;
-        updatePaddlePosition(normalizedTilt);
-      }
+      elAlpha.textContent = alpha;
+      elBeta.textContent  = beta;
+      elGamma.textContent = gamma;
+
+      // ボールのリアルタイムビジュアル移動 (gamma: 左右, beta: 前後)
+      // ステージ枠から出ないように制御
+      const maxOffset = 50; // px
+      const clamp = (val, min, max) => Math.min(Math.max(val, min), max);
+
+      const offsetX = clamp((gamma / 45) * maxOffset, -maxOffset, maxOffset);
+      const offsetY = clamp((beta / 45) * maxOffset, -maxOffset, maxOffset);
+
+      visualBall.style.transform = `translate(calc(-50% + ${offsetX}px), calc(-50% + ${offsetY}px))`;
     }
 
-    // 2. Motion イベント（加速度基準・Orientationが不発の時の保険）
+    // 加速度（Motion）イベントハンドラ
     function handleMotion(event) {
-      if (sensorActive) return; // Orientation が動いていれば優先する
+      const acc = event.accelerationIncludingGravity;
+      if (!acc) return;
 
-      let acc = event.accelerationIncludingGravity;
-      if (acc && acc.x !== null && acc.x !== undefined) {
-        // 横持ち・縦持ちやOSの違いを考慮し、加速度 X 軸（約 -9.8 〜 9.8）を正規化
-        // 端末を傾けた時の重力加速度を利用（-5.0 〜 5.0 程度を操作範囲とする）
-        let normalizedTilt = -acc.x / 5; 
-        if (normalizedTilt > 1) normalizedTilt = 1;
-        if (normalizedTilt < -1) normalizedTilt = -1;
-
-        debugLog.innerText = `Motion (acc.x): ${acc.x.toFixed(2)}`;
-        updatePaddlePosition(normalizedTilt);
-      }
+      elAccX.textContent = acc.x ? acc.x.toFixed(2) : 0;
+      elAccY.textContent = acc.y ? acc.y.toFixed(2) : 0;
+      elAccZ.textContent = acc.z ? acc.z.toFixed(2) : 0;
     }
 
-    // センサーアクセス権限の要求処理
-    async function requestSensorPermissions() {
-      // iOS向け：DeviceOrientationPermission の要求
-      if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-        try {
-          const orientPermission = await DeviceOrientationEvent.requestPermission();
-          if (orientPermission !== 'granted') {
-            debugLog.innerText = "iOS: 傾きセンサーのアクセスが拒否されました";
-            return false;
-          }
-        } catch (e) {
-          debugLog.innerText = "Permission Error: " + e.message;
-          return false;
-        }
+    // センサー実行開始
+    async function startSensors() {
+      // 通信環境チェック
+      if (!window.isSecureContext) {
+        statusCard.classList.add('error');
+        statusText.innerHTML = '⚠️ <strong>エラー:</strong> センサーの取得にはHTTPS環境（またはlocalhost）が必要です。';
+        return;
       }
 
-      // iOS向け：DeviceMotionPermission の要求（念のため）
-      if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
-        try {
-          await DeviceMotionEvent.requestPermission();
-        } catch (e) {
-          // Motion側の失敗は無視して進める
-        }
-      }
-
-      // リスナの登録
-      window.addEventListener("deviceorientation", handleOrientation, true);
-      window.addEventListener("devicemotion", handleMotion, true);
-
-      return true;
-    }
-
-    startBtn.addEventListener("click", async () => {
-      startBtn.style.display = "none";
-      const permitted = await requestSensorPermissions();
-      
-      if (permitted) {
-        resetGame();
-        isGameRunning = true;
-        draw();
-        
-        // 3秒経ってもセンサーが反応しない場合のデバッグ通知
-        setTimeout(() => {
-          if (!sensorActive && debugLog.innerText.includes("ボタンを押して")) {
-            debugLog.innerText = "センサー値を待機中... (スマホを傾けてみてください)";
-          }
-        }, 1000);
-      }
-    });
-
-    function resetGame() {
-      x = canvas.width / 2;
-      y = canvas.height - 30;
-      dx = 2.5;
-      dy = -2.5;
-      paddleX = (canvas.width - paddleWidth) / 2;
-      score = 0;
-      initBricks();
-    }
-
-    function collisionDetection() {
-      for (let c = 0; c < brickColumnCount; c++) {
-        for (let r = 0; r < brickRowCount; r++) {
-          let b = bricks[c][r];
-          if (b.status === 1) {
-            if (x > b.x && x < b.x + brickWidth && y > b.y && y < b.y + brickHeight) {
-              dy = -dy;
-              b.status = 0;
-              score++;
-              if (score === brickRowCount * brickColumnCount) {
-                alert("クリア！おめでとうございます！");
-                document.location.reload();
-              }
-            }
+      try {
+        // iOS 13+ のパーミッション要求
+        if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+          const permission = await DeviceOrientationEvent.requestPermission();
+          if (permission !== 'granted') {
+            statusCard.classList.add('error');
+            statusText.textContent = '❌ センサーの利用許可が得られませんでした。';
+            return;
           }
         }
+
+        // イベントリスナーの登録
+        window.addEventListener('deviceorientation', handleOrientation, true);
+        window.addEventListener('devicemotion', handleMotion, true);
+
+        startBtn.style.display = 'none';
+        statusText.style.color = '#00e676';
+        statusText.textContent = '🟢 センサー計測中... スマホを傾けたり動かしたりしてください。';
+
+      } catch (err) {
+        statusCard.classList.add('error');
+        statusText.textContent = 'エラーが発生しました: ' + err.message;
       }
     }
 
-    function drawBall() {
-      ctx.beginPath();
-      ctx.arc(x, y, ballRadius, 0, Math.PI * 2);
-      ctx.fillStyle = "#ff2e63";
-      ctx.fill();
-      ctx.closePath();
-    }
-
-    function drawPaddle() {
-      ctx.beginPath();
-      ctx.rect(paddleX, canvas.height - paddleHeight - 10, paddleWidth, paddleHeight);
-      ctx.fillStyle = "#00adb5";
-      ctx.fill();
-      ctx.closePath();
-    }
-
-    function drawBricks() {
-      for (let c = 0; c < brickColumnCount; c++) {
-        for (let r = 0; r < brickRowCount; r++) {
-          if (bricks[c][r].status === 1) {
-            let brickX = (c * (brickWidth + brickPadding)) + brickOffsetLeft;
-            let brickY = (r * (brickHeight + brickPadding)) + brickOffsetTop;
-            bricks[c][r].x = brickX;
-            bricks[c][r].y = brickY;
-            ctx.beginPath();
-            ctx.rect(brickX, brickY, brickWidth, brickHeight);
-            ctx.fillStyle = "#ececec";
-            ctx.fill();
-            ctx.closePath();
-          }
-        }
-      }
-    }
-
-    function drawScore() {
-      ctx.font = "14px sans-serif";
-      ctx.fillStyle = "#fff";
-      ctx.fillText("SCORE: " + score, 10, 25);
-    }
-
-    function draw() {
-      if (!isGameRunning) return;
-
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      drawBricks();
-      drawBall();
-      drawPaddle();
-      drawScore();
-      collisionDetection();
-
-      if (x + dx > canvas.width - ballRadius || x + dx < ballRadius) {
-        dx = -dx;
-      }
-      if (y + dy < ballRadius) {
-        dy = -dy;
-      } else if (y + dy > canvas.height - ballRadius - 10) {
-        if (x > paddleX && x < paddleX + paddleWidth) {
-          dy = -dy;
-        } else if (y + dy > canvas.height - ballRadius) {
-          alert("ゲームオーバー！");
-          document.location.reload();
-          return;
-        }
-      }
-
-      x += dx;
-      y += dy;
-
-      requestAnimationFrame(draw);
-    }
+    startBtn.addEventListener('click', startSensors);
   </script>
 </body>
 </html>
