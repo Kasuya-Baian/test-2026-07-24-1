@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>スマホ傾きブロックくずし</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: #111;
+      color: #fff;
+      font-family: sans-serif;
+      text-align: center;
+      overflow: hidden;
+      touch-action: none;
+    }
+    h1 {
+      font-size: 1.2rem;
+      margin: 10px 0 5px;
+    }
+    canvas {
+      background: #222;
+      display: block;
+      margin: 0 auto;
+      border: 2px solid #555;
+      box-shadow: 0 0 10px rgba(255,255,255,0.2);
+    }
+    #start-btn {
+      padding: 12px 24px;
+      font-size: 1rem;
+      font-weight: bold;
+      background-color: #00adb5;
+      color: #fff;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      margin-top: 15px;
+    }
+    #status {
+      font-size: 0.8rem;
+      color: #ff2e63;
+      margin-top: 5px;
+      min-height: 1.2em;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>傾きブロックくずし</h1>
+  <canvas id="gameCanvas" width="320" height="480"></canvas>
+  <button id="start-btn">ゲームスタート（センサー起動）</button>
+  <div id="status"></div>
+
+  <script>
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+    const startBtn = document.getElementById("start-btn");
+    const statusDiv = document.getElementById("status");
+
+    // ボール設定
+    let ballRadius = 6;
+    let x = canvas.width / 2;
+    let y = canvas.height - 30;
+    let dx = 2.5;
+    let dy = -2.5;
+
+    // パドル設定
+    const paddleHeight = 10;
+    const paddleWidth = 75;
+    let paddleX = (canvas.width - paddleWidth) / 2;
+
+    // ブロック設定
+    const brickRowCount = 5;
+    const brickColumnCount = 5;
+    const brickWidth = 50;
+    const brickHeight = 15;
+    const brickPadding = 8;
+    const brickOffsetTop = 40;
+    const brickOffsetLeft = 18;
+
+    let bricks = [];
+    function initBricks() {
+      for (let c = 0; c < brickColumnCount; c++) {
+        bricks[c] = [];
+        for (let r = 0; r < brickRowCount; r++) {
+          bricks[c][r] = { x: 0, y: 0, status: 1 };
+        }
+      }
+    }
+    initBricks();
+
+    let score = 0;
+    let isGameRunning = false;
+
+    // 傾き検知処理
+    function handleMotion(tiltValue) {
+      if (!isGameRunning || tiltValue === null || tiltValue === undefined) return;
+
+      // 傾き感度調整
+      const sensitivity = 0.8;
+      paddleX += tiltValue * sensitivity;
+
+      // 画面外はみ出し防止
+      if (paddleX < 0) {
+        paddleX = 0;
+      } else if (paddleX + paddleWidth > canvas.width) {
+        paddleX = canvas.width - paddleWidth;
+      }
+    }
+
+    // DeviceOrientationのイベントリスナー
+    function onDeviceOrientation(event) {
+      // 縦持ち前提: gamma (左右の傾き -90~90度)
+      if (event.gamma !== null) {
+        handleMotion(event.gamma);
+      }
+    }
+
+    // DeviceMotionのイベントリスナー（Orientationが使えない環境のバックアップ）
+    function onDeviceMotion(event) {
+      if (event.accelerationIncludingGravity) {
+        // x軸の加速度を利用（縦持ち時、左右の傾きでxが変化）
+        let ax = event.accelerationIncludingGravity.x;
+        if (ax !== null) {
+          // iOSとAndroidで符号が反転することがあるため調整
+          handleMotion(-ax * 3);
+        }
+      }
+    }
+
+    // センサーの初期化とパーミッション要求
+    async function initSensors() {
+      // 安全な通信（HTTPS / localhost）かどうかの確認チェック
+      if (!window.isSecureContext) {
+        statusDiv.innerText = "エラー: HTTPS（またはlocalhost）環境で開いてください";
+        return false;
+      }
+
+      // iOS 13+ のパーミッション要求
+      if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+        try {
+          const response = await DeviceOrientationEvent.requestPermission();
+          if (response !== 'granted') {
+            statusDiv.innerText = "センサーのアクセスが拒否されました";
+            return false;
+          }
+        } catch (error) {
+          statusDiv.innerText = "センサー許可エラー: " + error.message;
+          return false;
+        }
+      }
+
+      // イベント追加
+      window.addEventListener("deviceorientation", onDeviceOrientation, true);
+      window.addEventListener("devicemotion", onDeviceMotion, true);
+      return true;
+    }
+
+    startBtn.addEventListener("click", async () => {
+      const success = await initSensors();
+      if (success || !window.isSecureContext) {
+        startBtn.style.display = "none";
+        resetGame();
+        isGameRunning = true;
+        draw();
+      }
+    });
+
+    function resetGame() {
+      x = canvas.width / 2;
+      y = canvas.height - 30;
+      dx = 2.5;
+      dy = -2.5;
+      paddleX = (canvas.width - paddleWidth) / 2;
+      score = 0;
+      initBricks();
+    }
+
+    function collisionDetection() {
+      for (let c = 0; c < brickColumnCount; c++) {
+        for (let r = 0; r < brickRowCount; r++) {
+          let b = bricks[c][r];
+          if (b.status === 1) {
+            if (x > b.x && x < b.x + brickWidth && y > b.y && y < b.y + brickHeight) {
+              dy = -dy;
+              b.status = 0;
+              score++;
+              if (score === brickRowCount * brickColumnCount) {
+                alert("クリア！おめでとうございます！");
+                document.location.reload();
+              }
+            }
+          }
+        }
+      }
+    }
+
+    function drawBall() {
+      ctx.beginPath();
+      ctx.arc(x, y, ballRadius, 0, Math.PI * 2);
+      ctx.fillStyle = "#ff2e63";
+      ctx.fill();
+      ctx.closePath();
+    }
+
+    function drawPaddle() {
+      ctx.beginPath();
+      ctx.rect(paddleX, canvas.height - paddleHeight - 10, paddleWidth, paddleHeight);
+      ctx.fillStyle = "#00adb5";
+      ctx.fill();
+      ctx.closePath();
+    }
+
+    function drawBricks() {
+      for (let c = 0; c < brickColumnCount; c++) {
+        for (let r = 0; r < brickRowCount; r++) {
+          if (bricks[c][r].status === 1) {
+            let brickX = (c * (brickWidth + brickPadding)) + brickOffsetLeft;
+            let brickY = (r * (brickHeight + brickPadding)) + brickOffsetTop;
+            bricks[c][r].x = brickX;
+            bricks[c][r].y = brickY;
+            ctx.beginPath();
+            ctx.rect(brickX, brickY, brickWidth, brickHeight);
+            ctx.fillStyle = "#ececec";
+            ctx.fill();
+            ctx.closePath();
+          }
+        }
+      }
+    }
+
+    function drawScore() {
+      ctx.font = "14px sans-serif";
+      ctx.fillStyle = "#fff";
+      ctx.fillText("SCORE: " + score, 10, 25);
+    }
+
+    function draw() {
+      if (!isGameRunning) return;
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawBricks();
+      drawBall();
+      drawPaddle();
+      drawScore();
+      collisionDetection();
+
+      if (x + dx > canvas.width - ballRadius || x + dx < ballRadius) {
+        dx = -dx;
+      }
+      if (y + dy < ballRadius) {
+        dy = -dy;
+      } else if (y + dy > canvas.height - ballRadius - 10) {
+        if (x > paddleX && x < paddleX + paddleWidth) {
+          dy = -dy;
+        } else if (y + dy > canvas.height - ballRadius) {
+          alert("ゲームオーバー！");
+          document.location.reload();
+          return;
+        }
+      }
+
+      x += dx;
+      y += dy;
+
+      requestAnimationFrame(draw);
+    }
+  </script>
+</body>
+</html>
